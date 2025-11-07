@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "wachat",
+  "outputfilename": "wachat",
+  "frontend:install": "pnpm install",
+  "frontend:build": "pnpm run build",
+  "frontend:dev:watcher": "pnpm run dev",
+  "frontend:dev:serverUrl": "http://localhost:5173",
+  "author": {
+    "name": "wanna",
+    "email": "your@email.com"
+  },
+  "info": {
+    "companyName": "",
+    "productName": "wachat",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright 2025",
+    "comments": "Wails AI Chat - Modern desktop conversations"
+  }
+}
