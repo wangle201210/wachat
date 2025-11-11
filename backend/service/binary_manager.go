@@ -5,10 +5,11 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/gogf/gf/v2/frame/g"
 )
 
 // BinaryManager manages binaries lifecycle (embedded or local)
@@ -53,10 +54,11 @@ func NewBinaryManagerFromConfig(cfg BinariesConfig, binaries embed.FS) (*BinaryM
 	}
 
 	// Log initialization mode
+	ctx := context.Background()
 	if useEmbedded {
-		log.Println("Binary manager: using embedded mode")
+		g.Log().Info(ctx, "Binary manager: using embedded mode")
 	} else {
-		log.Printf("Binary manager: using local mode (path: %s)", binPath)
+		g.Log().Infof(ctx, "Binary manager: using local mode (path: %s)", binPath)
 	}
 
 	return bm, nil
@@ -91,7 +93,7 @@ func NewBinaryManager(useEmbedded bool, binaries embed.FS, binPath string, execO
 			binPath = absPath
 		}
 		cacheDir = binPath
-		log.Printf("Using local bin directory: %s", binPath)
+		g.Log().Infof(context.Background(), "Using local bin directory: %s", binPath)
 	}
 
 	return &BinaryManager{
@@ -109,7 +111,7 @@ func (bm *BinaryManager) StartAll(ctx context.Context) error {
 	successCount := 0
 	for _, binaryName := range bm.execOrder {
 		if err := bm.startBinary(ctx, binaryName); err != nil {
-			log.Printf("Failed to start %s: %v", binaryName, err)
+			g.Log().Warningf(ctx, "Failed to start %s: %v", binaryName, err)
 			// Continue with next binary instead of stopping
 			continue
 		}
@@ -120,7 +122,7 @@ func (bm *BinaryManager) StartAll(ctx context.Context) error {
 		return fmt.Errorf("failed to start any binaries")
 	}
 
-	log.Printf("Started %d/%d binaries successfully", successCount, len(bm.execOrder))
+	g.Log().Infof(ctx, "Started %d/%d binaries successfully", successCount, len(bm.execOrder))
 	return nil
 }
 
@@ -141,7 +143,7 @@ func (bm *BinaryManager) startBinary(ctx context.Context, name string) error {
 		if err := os.WriteFile(executablePath, data, 0755); err != nil {
 			return fmt.Errorf("failed to write binary %s: %w", name, err)
 		}
-		log.Printf("Extracted %s to %s", name, executablePath)
+		g.Log().Infof(ctx, "Extracted %s to %s", name, executablePath)
 	} else {
 		// Local mode: use binary from local directory
 		executablePath = filepath.Join(bm.cacheDir, name)
@@ -153,10 +155,10 @@ func (bm *BinaryManager) startBinary(ctx context.Context, name string) error {
 
 		// Ensure executable permission
 		if err := os.Chmod(executablePath, 0755); err != nil {
-			log.Printf("Warning: failed to chmod %s: %v", name, err)
+			g.Log().Warningf(ctx, "Warning: failed to chmod %s: %v", name, err)
 		}
 
-		log.Printf("Using local binary: %s", executablePath)
+		g.Log().Infof(ctx, "Using local binary: %s", executablePath)
 	}
 
 	// Run binary in background
@@ -169,7 +171,7 @@ func (bm *BinaryManager) startBinary(ctx context.Context, name string) error {
 		return fmt.Errorf("failed to start %s: %w", name, err)
 	}
 
-	log.Printf("%s started successfully (PID: %d)", name, cmd.Process.Pid)
+	g.Log().Infof(ctx, "%s started successfully (PID: %d)", name, cmd.Process.Pid)
 
 	// Save process reference
 	bm.processes = append(bm.processes, cmd)
@@ -177,9 +179,9 @@ func (bm *BinaryManager) startBinary(ctx context.Context, name string) error {
 	// Wait for process in a goroutine
 	go func(processName string, process *exec.Cmd) {
 		if err := process.Wait(); err != nil {
-			log.Printf("%s exited with error: %v", processName, err)
+			g.Log().Warningf(context.Background(), "%s exited with error: %v", processName, err)
 		} else {
-			log.Printf("%s exited successfully", processName)
+			g.Log().Infof(context.Background(), "%s exited successfully", processName)
 		}
 	}(name, cmd)
 
@@ -193,11 +195,12 @@ func (bm *BinaryManager) GetProcessCount() int {
 
 // Cleanup terminates all managed processes
 func (bm *BinaryManager) Cleanup() {
+	ctx := context.Background()
 	for i, cmd := range bm.processes {
 		if cmd.Process != nil {
-			log.Printf("Terminating process %d (PID: %d)", i, cmd.Process.Pid)
+			g.Log().Infof(ctx, "Terminating process %d (PID: %d)", i, cmd.Process.Pid)
 			if err := cmd.Process.Kill(); err != nil {
-				log.Printf("Failed to kill process %d: %v", i, err)
+				g.Log().Warningf(ctx, "Failed to kill process %d: %v", i, err)
 			}
 		}
 	}

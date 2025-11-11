@@ -208,10 +208,10 @@ func (c *ChatService) GenerateConversationTitle(conversationID string, conv *mod
 		},
 	}
 
-	// Generate title using AI
+	// Generate title using AI (without RAG)
 	responseChan := make(chan string, 100)
 	go func() {
-		c.aiService.StreamResponse(titleGenMessages, responseChan)
+		_, _ = c.aiService.StreamResponse(titleGenMessages, responseChan, false)
 	}()
 
 	// Collect response
@@ -294,12 +294,16 @@ func (c *ChatService) SendMessageStream(conversationID, content string, eventCal
 
 	// Stream AI response
 	responseChan := make(chan string)
-	errChan := make(chan error)
+	type streamResult struct {
+		docs []*schema.Document
+		err  error
+	}
+	resultChan := make(chan streamResult)
 	assistantContent := ""
 
 	go func() {
-		err := c.aiService.StreamResponse(conv.Messages, responseChan)
-		errChan <- err
+		docs, err := c.aiService.StreamResponse(conv.Messages, responseChan, true)
+		resultChan <- streamResult{docs: docs, err: err}
 	}()
 
 	go func() {
@@ -311,6 +315,9 @@ func (c *ChatService) SendMessageStream(conversationID, content string, eventCal
 			})
 		}
 
+		// Wait for stream to complete and get RAG documents
+		result := <-resultChan
+
 		// Create assistant message
 		assistantMsg := &schema.Message{
 			Role:    schema.Assistant,
@@ -318,7 +325,7 @@ func (c *ChatService) SendMessageStream(conversationID, content string, eventCal
 		}
 		conv.Messages = append(conv.Messages, assistantMsg)
 
-		// Save assistant message to database
+		// Save assistant message to database (without RAG docs - they're only for display)
 		if err := c.SaveMessage(conversationID, assistantMsg); err != nil {
 			eventCallback("stream:error", map[string]interface{}{
 				"conversationId": conversationID,
@@ -327,22 +334,30 @@ func (c *ChatService) SendMessageStream(conversationID, content string, eventCal
 			return
 		}
 
-		eventCallback("stream:end", map[string]interface{}{
+		// Emit stream end with RAG documents
+		streamEndData := map[string]interface{}{
 			"conversationId": conversationID,
 			"message": map[string]string{
 				"role":    "assistant",
 				"content": assistantContent,
 			},
-		})
-	}()
+		}
 
-	if err := <-errChan; err != nil {
-		eventCallback("stream:error", map[string]interface{}{
-			"conversationId": conversationID,
-			"error":          err.Error(),
-		})
-		return err
-	}
+		// Add RAG documents if available
+		if len(result.docs) > 0 {
+			streamEndData["ragDocuments"] = result.docs
+		}
+
+		eventCallback("stream:end", streamEndData)
+
+		// Check for streaming error
+		if result.err != nil {
+			eventCallback("stream:error", map[string]interface{}{
+				"conversationId": conversationID,
+				"error":          result.err.Error(),
+			})
+		}
+	}()
 
 	return nil
 }

@@ -1,19 +1,11 @@
-# wachat Configuration Example
-# Copy this file to config.yaml and modify as needed
-#
-# Configuration File Loading:
-# The application searches for config.yaml in the following order:
-# 1. Directory specified by WACHAT_CONFIG_PATH environment variable
-# 2. Current working directory
-# 3. Project root (found by searching for go.mod)
-# 4. Executable directory
-# 5. User config directory (~/.config/wachat)
-#
-# For development mode:
-#   export WACHAT_CONFIG_PATH=$(pwd)
-#   wails dev
+# wachat Configuration (GoFrame Style)
+# Compatible with go-rag project configuration
 
-# AI Service Configuration
+# ============================================================================
+# wachat Specific Configuration
+# ============================================================================
+
+# AI Service Configuration (for wailsChat conversation)
 ai:
   base_url: "https://api.openai.com/v1"
   api_key: "your-api-key-here"
@@ -31,26 +23,132 @@ ai:
   # api_key: "your-azure-key"
   # model: "gpt-35-turbo"
 
-  # Local LLM (Ollama, etc.)
-  # base_url: "http://localhost:11434/v1/chat/completions"
-  # api_key: ""
-  # model: "llama2"
-
 # Binary Manager Configuration
 binaries:
-  enabled: true
-
-  # Use embedded binaries (true) or local bin/ directory (false)
-  # Embedded mode: binaries are packed into the application (larger app size)
-  # Local mode: binaries are loaded from bin_path directory (flexible, smaller app)
-  use_embedded: false
-
-  # Path to local binaries directory (only used when use_embedded is false)
-  # Can be absolute or relative path. Default: "./bin"
+  enabled: false
+  use_embedded: false  # true: use embedded, false: use local bin/ directory
   bin_path: "./bin"
+  startup_order: []
+    # - qdrant
+    # - wailsproject
 
-  # Define the startup order of binaries
-  # The application will start these binaries in the specified order
-  startup_order:
-    - qdrant
-    - wailsproject
+# ============================================================================
+# RAG (Retrieval Augmented Generation) Configuration
+# This section follows go-rag project's configuration format
+# ============================================================================
+
+rag:
+  enabled: false                      # Enable RAG functionality for AI conversations
+  topK: 5                             # Number of documents to retrieve
+  defaultKnowledgeBase: ""            # Default knowledge base name (for automatic RAG enhancement)
+
+# Go-rag HTTP Server Configuration (Optional)
+# https://goframe.org/docs/web/server-config-file-template
+server:
+  address: ":8000"         # Server port (leave empty to disable server)
+  openapiPath: "/api.json"
+  swaggerPath: "/swagger"
+
+# Go-rag Logger Configuration
+# https://goframe.org/docs/core/glog-config
+logger:
+  level: "all"      # Log level: all, debug, info, warn, error
+  stdout: true      # Output to console
+  # path: "./logs/" # Log file path (optional)
+  # file: "{Y-m-d}.log" # Log file format (optional)
+
+# Database Configuration (Required if server is enabled)
+# Go-rag server uses MySQL to store document metadata
+database:
+  default:
+    host: "127.0.0.1"
+    port: "3306"
+    user: "root"
+    pass: "123456"
+    name: "go_rag"
+    type: "mysql"
+    charset: "utf8mb4"  # Important for special characters in documents
+
+# Elasticsearch Configuration
+es:
+  address: "http://localhost:9200"
+  indexName: "knowledge_base"
+  # username: ""  # Optional
+  # password: ""  # Optional
+
+# Embedding Model Configuration
+# Used for converting text to vectors
+embedding:
+  apiKey: "sk-your-key-here"
+  baseURL: "https://api.siliconflow.cn/v1"
+  model: "BAAI/bge-m3"
+
+# Rerank Model Configuration (Optional)
+# Improves retrieval quality by reranking results
+rerank:
+  apiKey: "sk-your-key-here"  # Can reuse embedding.apiKey
+  baseURL: "https://api.siliconflow.cn/v1"
+  model: "BAAI/bge-reranker-v2-m3"
+
+# Rewrite Model Configuration (Optional)
+# Rewrites user queries for better retrieval
+rewrite:
+  apiKey: "sk-your-key-here"
+  baseURL: "https://api.siliconflow.cn/v1"
+  model: "Qwen/Qwen2.5-7B-Instruct"
+
+# QA Model Configuration (Optional)
+# Generates Q&A pairs from documents
+qa:
+  apiKey: "sk-your-key-here"
+  baseURL: "https://api.siliconflow.cn/v1"
+  model: "Qwen/Qwen2.5-7B-Instruct"
+
+# Chat Model Configuration (Optional)
+# Used for go-rag's chat functionality
+chat:
+  apiKey: "sk-your-key-here"
+  baseURL: "https://api.siliconflow.cn/v1"
+  model: "deepseek-ai/DeepSeek-V3"
+
+# ============================================================================
+# Usage Examples
+# ============================================================================
+
+# Example 1: RAG without server (only core functionality)
+# rag:
+#   enabled: true
+# server:
+#   address: ""  # Empty to disable server
+# es:
+#   address: "http://localhost:9200"
+#   indexName: "my_knowledge"
+# embedding:
+#   apiKey: "sk-xxx"
+#   baseURL: "https://api.siliconflow.cn/v1"
+#   model: "BAAI/bge-m3"
+
+# Example 2: Full go-rag server with UI
+# rag:
+#   enabled: true
+# server:
+#   address: ":8000"
+# database:
+#   default:
+#     host: "127.0.0.1"
+#     pass: "your-mysql-password"
+# es:
+#   address: "http://localhost:9200"
+# embedding:
+#   apiKey: "sk-xxx"
+#   baseURL: "https://api.siliconflow.cn/v1"
+
+# Example 3: Use different models for different tasks
+# embedding:
+#   model: "BAAI/bge-m3"           # Fast and accurate
+# rerank:
+#   model: "BAAI/bge-reranker-v2-m3"  # Better quality
+# rewrite:
+#   model: "Qwen/Qwen2.5-7B-Instruct" # Good at query rewriting
+# chat:
+#   model: "deepseek-ai/DeepSeek-V3"  # Powerful reasoning

@@ -45,6 +45,18 @@
           </button>
         </div>
 
+        <!-- Knowledge Base Button (Right) -->
+        <button
+          v-if="ragEnabled"
+          @click="router.push('/rag')"
+          class="px-4 py-2 hover:bg-gray-100 flex-shrink-0"
+          title="知识库管理"
+        >
+          <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+        </button>
+
         <!-- History Button (Right) -->
         <button
           @click="showHistory = !showHistory"
@@ -123,11 +135,13 @@
         </div>
       </div>
     </transition>
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import NodeRenderer from 'vue-renderer-markdown'
 import 'katex/dist/katex.min.css'
 import ChatMessage from '../components/ChatMessage.vue'
@@ -135,10 +149,12 @@ import ChatInput from '../components/ChatInput.vue'
 import AvatarAI from '../components/AvatarAI.vue'
 import { useChat } from '../composables/useChat'
 import { useAutoScroll } from '../composables/useAutoScroll'
-import { DeleteConversation } from '../../wailsjs/go/main/App'
+import { DeleteConversation, GetRAGServerInfo } from '../../wailsjs/go/main/App'
 
+const router = useRouter()
 const inputMessage = ref('')
 const showHistory = ref(false)
+const ragEnabled = ref(false)
 const openTabs = ref<string[]>([])
 let tempTabCounter = 0 // 用于生成临时tab ID
 
@@ -291,6 +307,14 @@ onMounted(async () => {
     const firstConv = conversations.value[0]
     openTabs.value = [firstConv.id]
     await selectConversation(firstConv.id)
+  }
+
+  // Check if RAG is enabled
+  try {
+    const info = await GetRAGServerInfo()
+    ragEnabled.value = info.enabled
+  } catch (err) {
+    console.error('Failed to get RAG server info:', err)
   }
 })
 </script>

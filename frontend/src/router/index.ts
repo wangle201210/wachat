@@ -7,6 +7,11 @@ const router = createRouter({
       path: '/',
       name: 'chat',
       component: () => import('@/views/ChatView.vue')
+    },
+    {
+      path: '/rag',
+      name: 'rag',
+      component: () => import('@/views/RAGView.vue')
     }
   ]
 })

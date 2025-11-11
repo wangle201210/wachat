@@ -1,9 +1,10 @@
 package main
 
 import (
+	"context"
 	"embed"
-	"log"
 
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -14,10 +15,11 @@ import (
 var assets embed.FS
 
 func main() {
-	// Load configuration from yaml
-	cfg, err := config.Load()
+	// Load configuration
+	ctx := context.Background()
+	cfg, err := config.Load(ctx)
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		g.Log().Fatalf(ctx, "Failed to load configuration: %v", err)
 	}
 
 	// Create an instance of the app structure
@@ -40,6 +42,6 @@ func main() {
 	})
 
 	if err != nil {
-		log.Fatal(err)
+		g.Log().Fatal(ctx, err)
 	}
 }

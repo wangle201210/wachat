@@ -4,8 +4,8 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"log"
 
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/wangle201210/wachat/backend"
 	"github.com/wangle201210/wachat/backend/config"
 	"github.com/wangle201210/wachat/backend/model"
@@ -26,7 +26,8 @@ type App struct {
 
 // NewApp creates new App
 func NewApp(cfg *config.Config) *App {
-	api, err := backend.NewAPI()
+	// Use background context for API initialization
+	api, err := backend.NewAPI(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("Failed to initialize API: %v", err))
 	}
@@ -34,7 +35,7 @@ func NewApp(cfg *config.Config) *App {
 	// Create binary manager from config
 	binaryManager, err := service.NewBinaryManagerFromConfig(cfg.Binaries, binaries)
 	if err != nil {
-		log.Printf("Binary manager: %v", err)
+		g.Log().Warningf(context.Background(), "Binary manager: %v", err)
 	}
 
 	return &App{
@@ -51,13 +52,29 @@ func (a *App) startup(ctx context.Context) {
 	// Start all embedded binaries
 	if a.binaryManager != nil {
 		if err := a.binaryManager.StartAll(ctx); err != nil {
-			log.Printf("Warning: Failed to start binaries: %v", err)
+			g.Log().Warningf(ctx, "Warning: Failed to start binaries: %v", err)
+		}
+	}
+
+	// Start go-rag server if enabled
+	goragServer := a.chatAPI.GetGoRagServerService()
+	if goragServer != nil && goragServer.IsEnabled() {
+		if err := goragServer.Start(ctx); err != nil {
+			g.Log().Warningf(ctx, "Warning: Failed to start go-rag server: %v", err)
 		}
 	}
 }
 
 // shutdown is called when app stops
 func (a *App) shutdown(ctx context.Context) {
+	// Stop go-rag server
+	goragServer := a.chatAPI.GetGoRagServerService()
+	if goragServer != nil && goragServer.IsRunning() {
+		if err := goragServer.Stop(); err != nil {
+			g.Log().Warningf(ctx, "Warning: Failed to stop go-rag server: %v", err)
+		}
+	}
+
 	// Cleanup managed binaries
 	if a.binaryManager != nil {
 		a.binaryManager.Cleanup()
@@ -93,4 +110,30 @@ func (a *App) SendMessageStream(conversationID, content string) error {
 
 	// Delegate to service layer
 	return a.chatAPI.SendMessageStream(conversationID, content, eventCallback)
+}
+
+// RAGServerInfo holds RAG server configuration info
+type RAGServerInfo struct {
+	Enabled bool   `json:"enabled"`
+	URL     string `json:"url"`
+}
+
+// GetRAGServerInfo returns RAG server configuration
+func (a *App) GetRAGServerInfo() *RAGServerInfo {
+	goragServer := a.chatAPI.GetGoRagServerService()
+	if goragServer == nil || !goragServer.IsEnabled() {
+		return &RAGServerInfo{
+			Enabled: false,
+			URL:     "",
+		}
+	}
+
+	// Construct URL from config
+	cfg := config.GetRAGConfig()
+	url := fmt.Sprintf("http://localhost%s", cfg.Server.Address)
+
+	return &RAGServerInfo{
+		Enabled: true,
+		URL:     url,
+	}
 }

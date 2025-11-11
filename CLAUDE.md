@@ -21,6 +21,7 @@ wachat/
 │   └── service/         # Service 层 - 业务逻辑
 │       ├── ai.go        # AI 服务
 │       ├── chat.go      # 聊天服务
+│       ├── rag_service.go  # RAG 文档检索服务
 │       └── binary_manager.go  # 二进制管理服务
 ├── frontend/            # Vue 3 前端 - Composition API
 │   ├── src/
@@ -42,6 +43,9 @@ wachat/
 - `app.go`: Wails 生命周期管理，前端方法绑定，事件发送，*请不要在这里写复杂的业务逻辑*
 - `api.go`: API 外观层，初始化各层依赖，提供统一接口
 - `service/`: 业务逻辑，不直接访问数据库
+  - `ai.go`: AI 对话服务，集成 RAG 增强
+  - `chat.go`: 聊天会话管理
+  - `rag_service.go`: RAG 文档检索服务（基于 go-rag）
   - `binary_manager.go`: 管理嵌入的二进制文件（qdrant等）
 - `repository/`: 数据访问，GORM 操作封装
 - `database/`: 数据库连接、迁移
@@ -181,6 +185,10 @@ binaries:
   startup_order:
     - qdrant
     - wailsproject
+
+rag:
+  enabled: false  # 需要 Elasticsearch 支持
+  top_k: 5  # 检索返回的文档数量
 ```
 
 **添加新配置项**:
@@ -342,6 +350,148 @@ wails build -platform darwin/amd64  # 指定平台
    ```
 3. 重新编译：`wails build`
 4. 二进制会被打包到应用中（增加应用体积）
+
+## RAG (Retrieval Augmented Generation) 集成
+
+### 概述
+
+wachat 集成了 RAG 功能，使用 `go-rag` 项目提供文档检索增强能力。RAG 可以从 Elasticsearch 中检索相关文档，并将其作为上下文添加到 AI 对话中，从而提供更准确、更有针对性的回答。
+
+### 架构设计
+
+**依赖关系**:
+```
+go-rag (独立 Git 项目)
+    ↓ Go Modules (local replace)
+wachat/backend/service/rag_service.go
+    ↓ 依赖注入
+wachat/backend/service/ai.go
+```
+
+**设计原则**:
+- `go-rag` 保持为独立的 Git 项目
+- wachat 通过 Go Modules 引用 go-rag
+- 使用 `replace` 指令支持本地开发
+- RAG 功能可通过配置开关启用/禁用
+
+### Go Modules 配置
+
+**go.mod 配置**:
+```go
+require (
+    github.com/wangle201210/go-rag/server v0.0.0-00010101000000-000000000000
+)
+
+// 本地开发时使用 replace 指令
+replace github.com/wangle201210/go-rag/server => ../go-rag/server
+```
+
+**本地开发**:
+- 确保 `go-rag` 项目在 `../go-rag` 目录
+- `replace` 指令允许本地修改 go-rag 并立即生效
+- 不需要发布 go-rag 版本即可开发
+
+**生产环境**:
+- 发布 go-rag 到 GitHub 后，移除 `replace` 指令
+- Go Modules 会从 GitHub 拉取指定版本
+
+### RAG 配置
+
+**启用 RAG**:
+```yaml
+rag:
+  enabled: true
+  elasticsearch_url: "http://localhost:9200"
+  index_name: "knowledge_base"
+  top_k: 5
+```
+
+**配置说明**:
+- `enabled`: 是否启用 RAG（默认 false）
+- `elasticsearch_url`: Elasticsearch 服务地址
+- `index_name`: 文档索引名称
+- `top_k`: 检索返回的文档数量（用于生成上下文）
+
+### 工作流程
+
+1. **初始化** (`backend/api.go`):
+   ```go
+   ragService, err := service.NewRAGService(ctx, ragConfig)
+   aiService := service.NewAIService(aiConfig, ragService)
+   ```
+
+2. **文档检索** (`backend/service/rag_service.go`):
+   ```go
+   func (r *RAGService) RetrieveWithContext(ctx context.Context, query string) (string, error) {
+       // 使用 go-rag 检索相关文档
+       results := r.rag.Retrieve(ctx, query)
+       // 格式化为上下文字符串
+       return formatContext(results), nil
+   }
+   ```
+
+3. **上下文增强** (`backend/service/ai.go`):
+   ```go
+   // 检索相关文档
+   ragContext, err := a.ragService.RetrieveWithContext(a.ctx, userMessage)
+
+   // 将上下文作为 system 消息添加到对话前
+   systemMsg := &schema.Message{
+       Role:    schema.System,
+       Content: ragContext,
+   }
+   enhancedMessages = append([]*schema.Message{systemMsg}, messages...)
+   ```
+
+4. **AI 生成**: 使用增强后的消息调用 AI 模型
+
+### 调试 RAG
+
+**查看 RAG 是否生效**:
+1. 检查 `config.yaml` 中 `rag.enabled` 是否为 `true`
+2. 查看应用启动日志，确认 RAG 服务初始化成功
+3. 在 `ai.go` 的 `StreamResponse` 方法中添加日志：
+   ```go
+   if ragContext != "" {
+       fmt.Printf("RAG Context: %s\n", ragContext)
+   }
+   ```
+
+**常见问题**:
+- **Elasticsearch 连接失败**: 检查 `elasticsearch_url` 配置和 ES 服务状态
+- **检索无结果**: 确认索引中有文档，且 `index_name` 正确
+- **上下文过长**: 调整 `top_k` 值减少检索文档数量
+
+### 修改 go-rag 项目
+
+如果需要修改 go-rag 功能：
+
+1. 在 `../go-rag` 目录修改代码
+2. 由于使用了 `replace` 指令，修改会立即生效
+3. 在 wachat 中重新编译测试：
+   ```bash
+   go mod tidy
+   wails dev
+   ```
+4. 测试通过后，提交 go-rag 的修改
+5. 可选：发布 go-rag 新版本，更新 wachat 的依赖版本
+
+### 添加新的 RAG 功能
+
+1. **在 go-rag 中添加新方法**
+2. **在 rag_service.go 中封装**:
+   ```go
+   func (r *RAGService) NewFeature(ctx context.Context, params) (result, error) {
+       return r.rag.NewMethod(ctx, params)
+   }
+   ```
+3. **在 ai.go 中使用**:
+   ```go
+   if a.ragService != nil && a.ragService.IsEnabled() {
+       result, err := a.ragService.NewFeature(ctx, params)
+       // 处理结果
+   }
+   ```
 
 ## 注意事项
 

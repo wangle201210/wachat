@@ -1,34 +1,40 @@
 package config
 
 import (
-	"errors"
-	"fmt"
-	"log"
+	"context"
 	"os"
 	"path/filepath"
 
-	"github.com/spf13/viper"
+	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/os/gcfg"
+	"github.com/gogf/gf/v2/os/gfile"
 )
 
-// Config holds all configuration
+var (
+	globalConfig *Config
+	configPath   string
+)
+
+// Config holds all configuration (GoFrame style)
 type Config struct {
-	AI       *AIConfig       `mapstructure:"ai"`
-	Binaries *BinariesConfig `mapstructure:"binaries"`
+	AI       *AIConfig       `json:"ai"`
+	Binaries *BinariesConfig `json:"binaries"`
+	RAG      *RAGConfig      `json:"rag"`
 }
 
 // AIConfig holds AI service configuration
 type AIConfig struct {
-	BaseURL string `mapstructure:"base_url"`
-	APIKey  string `mapstructure:"api_key"`
-	Model   string `mapstructure:"model"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+	Model   string `json:"model"`
 }
 
 // BinariesConfig holds binary manager configuration
 type BinariesConfig struct {
-	Enabled      bool     `mapstructure:"enabled"`
-	UseEmbedded  bool     `mapstructure:"use_embedded"` // true: use embedded, false: use local bin/ directory
-	BinPath      string   `mapstructure:"bin_path"`     // local bin directory path (default: "./bin")
-	StartupOrder []string `mapstructure:"startup_order"`
+	Enabled      bool     `json:"enabled"`
+	UseEmbedded  bool     `json:"use_embedded"`
+	BinPath      string   `json:"bin_path"`
+	StartupOrder []string `json:"startup_order"`
 }
 
 // IsEnabled returns whether binary manager is enabled
@@ -57,106 +63,244 @@ func (c *BinariesConfig) GetStartupOrder() []string {
 	return c.StartupOrder
 }
 
-var globalConfig *Config
-
-// findProjectRoot tries to find project root by looking for go.mod
-func findProjectRoot(startDir string) (string, error) {
-	dir := startDir
-	for i := 0; i < 2; i++ { // Limit search depth
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir, nil
-		}
-		parentDir := filepath.Dir(dir)
-		if parentDir == dir {
-			break // Reached filesystem root
-		}
-		dir = parentDir
-	}
-	return "", fmt.Errorf("go.mod not found")
+// ServerConfig holds server configuration
+type ServerConfig struct {
+	Address     string `json:"address"`
+	OpenapiPath string `json:"openapiPath"`
+	SwaggerPath string `json:"swaggerPath"`
 }
 
-// Load loads configuration from yaml file
-func Load() (*Config, error) {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
+// LoggerConfig holds logger configuration
+type LoggerConfig struct {
+	Level  string `json:"level"`
+	Stdout bool   `json:"stdout"`
+	Path   string `json:"path"`
+	File   string `json:"file"`
+}
 
+// DatabaseDefaultConfig holds default database configuration
+type DatabaseDefaultConfig struct {
+	Host    string `json:"host"`
+	Port    string `json:"port"`
+	User    string `json:"user"`
+	Pass    string `json:"pass"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Charset string `json:"charset"`
+}
+
+// DatabaseConfig holds database configuration
+type DatabaseConfig struct {
+	Default *DatabaseDefaultConfig `json:"default"`
+}
+
+// ESConfig holds Elasticsearch configuration
+type ESConfig struct {
+	Address   string `json:"address"`
+	IndexName string `json:"indexName"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+}
+
+// ModelConfig holds model API configuration (reused for embedding, rerank, etc.)
+type ModelConfig struct {
+	APIKey  string `json:"apiKey"`
+	BaseURL string `json:"baseURL"`
+	Model   string `json:"model"`
+}
+
+// RAGConfig holds RAG configuration for wachat
+// Note: go-rag server reads its own config (server, database, es, embedding, etc.)
+// from GoFrame global config (g.Cfg()), we don't need to load them here
+type RAGConfig struct {
+	Enabled              bool          `json:"enabled"`              // wailsChat 控制：是否启用 RAG 功能
+	TopK                 int           `json:"topK"`                 // 检索返回的文档数量
+	DefaultKnowledgeBase string        `json:"defaultKnowledgeBase"` // 默认知识库名称（用于自动 RAG 增强）
+	Server               *ServerConfig `json:"server"`               // go-rag 服务器配置（用于判断是否启动服务器和构建 HTTP 请求）
+}
+
+// IsEnabled returns whether RAG is enabled
+func (c *RAGConfig) IsEnabled() bool {
+	return c != nil && c.Enabled
+}
+
+// IsServerEnabled returns whether go-rag server should be started
+func (c *RAGConfig) IsServerEnabled() bool {
+	return c != nil && c.Server != nil && c.Server.Address != ""
+}
+
+// findConfigFile tries to find config.yaml in multiple locations
+func findConfigFile() string {
 	// Priority 1: Environment variable WACHAT_CONFIG_PATH
 	if configPath := os.Getenv("WACHAT_CONFIG_PATH"); configPath != "" {
-		log.Printf("Using config path from environment: %s", configPath)
-		viper.AddConfigPath(configPath)
+		cfgFile := filepath.Join(configPath, "config.yaml")
+		if gfile.Exists(cfgFile) {
+			return cfgFile
+		}
 	}
 
 	// Priority 2: Current working directory
 	if cwd, err := os.Getwd(); err == nil {
-		log.Printf("Current working directory: %s", cwd)
-		viper.AddConfigPath(cwd)
-
-		// Try to find project root from cwd
-		if projectRoot, err := findProjectRoot(cwd); err == nil {
-			log.Printf("Found project root from cwd: %s", projectRoot)
-			viper.AddConfigPath(projectRoot)
+		cfgFile := filepath.Join(cwd, "config.yaml")
+		if gfile.Exists(cfgFile) {
+			return cfgFile
 		}
 	}
 
 	// Priority 3: Executable directory
 	if execPath, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(execPath)
-
-		// Resolve symlinks (important for development)
 		if realPath, err := filepath.EvalSymlinks(execPath); err == nil {
 			execDir = filepath.Dir(realPath)
 		}
-
-		log.Printf("Executable directory: %s", execDir)
-		viper.AddConfigPath(execDir)
-
-		// Try to find project root from executable directory
-		if projectRoot, err := findProjectRoot(execDir); err == nil {
-			log.Printf("Found project root from executable: %s", projectRoot)
-			viper.AddConfigPath(projectRoot)
+		cfgFile := filepath.Join(execDir, "config.yaml")
+		if gfile.Exists(cfgFile) {
+			return cfgFile
 		}
 	}
 
 	// Priority 4: User home directory
 	if homeDir, err := os.UserHomeDir(); err == nil {
 		configHome := filepath.Join(homeDir, ".config", "wachat")
-		viper.AddConfigPath(configHome)
-	}
-
-	// Fallback: current directory
-	viper.AddConfigPath(".")
-
-	// Set defaults
-	viper.SetDefault("ai.base_url", "https://api.openai.com/v1")
-	viper.SetDefault("ai.model", "gpt-3.5-turbo")
-	viper.SetDefault("binaries.enabled", false)
-	viper.SetDefault("binaries.use_embedded", false) // Default to local mode
-	viper.SetDefault("binaries.bin_path", "./bin")
-	viper.SetDefault("binaries.startup_order", []string{})
-
-	// Read config file
-	if err := viper.ReadInConfig(); err != nil {
-		if errors.As(err, &viper.ConfigFileNotFoundError{}) {
-			log.Println("Warning: config.yaml not found, using defaults")
+		cfgFile := filepath.Join(configHome, "config.yaml")
+		if gfile.Exists(cfgFile) {
+			return cfgFile
 		}
-	} else {
-		log.Printf("Using config file: %s", viper.ConfigFileUsed())
 	}
 
-	// Unmarshal to struct
-	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	// Default: current directory
+	return "config.yaml"
+}
+
+// Load loads configuration using GoFrame
+func Load(ctx context.Context) (*Config, error) {
+	// // Find config file
+	// configPath = findConfigFile()
+	// log.Printf("Loading config from: %s", configPath)
+	//
+	// // Check if config file exists
+	// if !gfile.Exists(configPath) {
+	// 	log.Printf("Warning: config file not found at %s, using defaults", configPath)
+	// 	return createDefaultConfig(), nil
+	// }
+	//
+	// // Set config file for GoFrame global instance
+	// cfgDir := filepath.Dir(configPath)
+	//
+	// // Create adapter with custom config directory
+	// adapter, err := gcfg.NewAdapterFile(cfgDir)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to create config adapter: %w", err)
+	// }
+	//
+	// // Set adapter for GoFrame global instance
+	// // This is important for go-rag to access the config via g.Cfg() and g.DB()
+	// g.Cfg().SetAdapter(adapter)
+
+	// Get the global config instance
+	cfg := g.Cfg()
+
+	// Parse configuration
+	config := &Config{}
+
+	// Load AI config
+	config.AI = &AIConfig{}
+	if !cfg.MustGet(ctx, "ai").IsNil() {
+		if err := cfg.MustGet(ctx, "ai").Scan(config.AI); err != nil {
+			g.Log().Warningf(ctx, "Warning: failed to scan ai config: %v", err)
+		}
 	}
 
-	globalConfig = &cfg
-	return &cfg, nil
+	// Load Binaries config
+	config.Binaries = &BinariesConfig{}
+	if !cfg.MustGet(ctx, "binaries").IsNil() {
+		if err := cfg.MustGet(ctx, "binaries").Scan(config.Binaries); err != nil {
+			g.Log().Warningf(ctx, "Warning: failed to scan binaries config: %v", err)
+		}
+	}
+
+	// Load RAG config (go-rag compatible)
+	config.RAG = loadRAGConfig(ctx, cfg)
+
+	// Apply defaults
+	applyDefaults(config)
+
+	globalConfig = config
+	return config, nil
+}
+
+// loadRAGConfig loads RAG configuration
+// Note: Only load wachat-specific config (enabled, topK, server address)
+// go-rag server will read its own config from GoFrame global config (g.Cfg())
+func loadRAGConfig(ctx context.Context, cfg *gcfg.Config) *RAGConfig {
+	ragCfg := &RAGConfig{}
+
+	// Load rag section (enabled, topK)
+	if !cfg.MustGet(ctx, "rag").IsNil() {
+		if err := cfg.MustGet(ctx, "rag").Scan(ragCfg); err != nil {
+			g.Log().Warningf(ctx, "Warning: failed to scan rag config: %v", err)
+		}
+	}
+
+	// Load server config (for determining if go-rag server should start)
+	if !cfg.MustGet(ctx, "server").IsNil() {
+		ragCfg.Server = &ServerConfig{}
+		if err := cfg.MustGet(ctx, "server").Scan(ragCfg.Server); err != nil {
+			g.Log().Warningf(ctx, "Warning: failed to scan server config: %v", err)
+		}
+	}
+
+	return ragCfg
+}
+
+// createDefaultConfig creates a default configuration
+func createDefaultConfig() *Config {
+	return &Config{
+		AI: &AIConfig{
+			BaseURL: "https://api.openai.com/v1",
+			Model:   "gpt-3.5-turbo",
+		},
+		Binaries: &BinariesConfig{
+			Enabled:     false,
+			UseEmbedded: false,
+			BinPath:     "./bin",
+		},
+		RAG: &RAGConfig{
+			Enabled: false,
+			TopK:    5,
+		},
+	}
+}
+
+// applyDefaults applies default values to config
+func applyDefaults(cfg *Config) {
+	// AI defaults
+	if cfg.AI.BaseURL == "" {
+		cfg.AI.BaseURL = "https://api.openai.com/v1"
+	}
+	if cfg.AI.Model == "" {
+		cfg.AI.Model = "gpt-3.5-turbo"
+	}
+
+	// Binaries defaults
+	if cfg.Binaries.BinPath == "" {
+		cfg.Binaries.BinPath = "./bin"
+	}
+
+	// RAG defaults
+	if cfg.RAG != nil {
+		if cfg.RAG.TopK == 0 {
+			cfg.RAG.TopK = 5
+		}
+		// Note: Other RAG configs (embedding, rerank, etc.) are managed by go-rag
+		// through GoFrame global config, we don't need to set defaults here
+	}
 }
 
 // Get returns the global config instance
 func Get() *Config {
 	if globalConfig == nil {
-		log.Fatal("Config not loaded. Call config.Load() first")
+		g.Log().Fatal(context.Background(), "Config not loaded. Call config.Load() first")
 	}
 	return globalConfig
 }
@@ -165,4 +309,10 @@ func Get() *Config {
 func GetAIConfig() *AIConfig {
 	cfg := Get()
 	return cfg.AI
+}
+
+// GetRAGConfig returns RAG configuration
+func GetRAGConfig() *RAGConfig {
+	cfg := Get()
+	return cfg.RAG
 }

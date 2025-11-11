@@ -1,11 +1,18 @@
 import { ref, computed } from 'vue'
 import { CreateConversation, SendMessageStream, ListConversations, GetConversation } from '../../wailsjs/go/main/App'
 
+export interface RAGDocument {
+  id: string
+  content: string
+  meta_data?: Record<string, any>
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+  ragDocuments?: RAGDocument[]
 }
 
 export interface Conversation {
@@ -114,7 +121,11 @@ export function useChat() {
         console.log('Stream ended:', data)
         const conv = currentConversation.value
         if (conv && data.message) {
-          conv.messages.push(data.message)
+          const message: Message = {
+            ...data.message,
+            ragDocuments: data.ragDocuments || []
+          }
+          conv.messages.push(message)
         }
         streamingMessage.value = ''
         isSending.value = false

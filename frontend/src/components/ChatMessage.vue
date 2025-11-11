@@ -15,6 +15,8 @@
         <div class="prose prose-sm prose-zinc max-w-none">
           <NodeRenderer :content="message.content" />
         </div>
+        <!-- RAG Documents -->
+        <RAGDocuments :documents="message.ragDocuments" />
       </div>
     </div>
   </div>
@@ -26,13 +28,8 @@ import 'katex/dist/katex.min.css'
 import '../assets/markdown.css'
 import AvatarAI from './AvatarAI.vue'
 import AvatarUser from './AvatarUser.vue'
-
-interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: Date
-}
+import RAGDocuments from './RAGDocuments.vue'
+import type { Message } from '../composables/useChat'
 
 defineProps<{
   message: Message
