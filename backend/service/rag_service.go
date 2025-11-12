@@ -185,7 +185,7 @@ func (r *RAGServiceImpl) Retrieve(ctx context.Context, query string, knowledgeNa
 	// 直接返回 go-rag 的 Document 列表
 	g.Log().Debugf(ctx, "Retrieved %d documents", len(apiResp.Data.Document))
 	for i, doc := range apiResp.Data.Document {
-		g.Log().Debugf(ctx, "Document[%d]: ID=%s, Score=%.2f, Content=%s", i, doc.ID, doc.Score(), doc.Content[:min(50, len(doc.Content))])
+		g.Log().Debugf(ctx, "Document[%d]: ID=%s, Score=%.2f, Content=%s", i, doc.ID, doc.Score(), doc.Content)
 	}
 
 	return apiResp.Data.Document, nil
@@ -229,14 +229,6 @@ func (r *RAGServiceImpl) RetrieveWithContext(ctx context.Context, query string) 
 	}
 	g.Log().Debugf(ctx, "Generated context: %s", contextStr)
 	return contextStr, nil
-}
-
-// min 返回两个整数的最小值
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // IndexDocumentFromURI 从文件或 URL 索引文档到知识库

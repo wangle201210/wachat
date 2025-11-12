@@ -78,6 +78,19 @@
             :message="message"
           />
 
+          <!-- Loading Indicator (AI Thinking) -->
+          <div v-if="isLoading && !streamingMessage" class="flex gap-3">
+            <AvatarAI />
+            <div class="flex items-center gap-2">
+              <div class="flex space-x-1">
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+              </div>
+              <span class="text-sm text-gray-500">正在思考...</span>
+            </div>
+          </div>
+
           <!-- Streaming Message -->
           <div v-if="streamingMessage" class="flex gap-3">
             <AvatarAI />
@@ -166,6 +179,7 @@ const {
   currentMessages,
   streamingMessage,
   isSending,
+  isLoading,
   loadConversations,
   createNewConversation,
   selectConversation,

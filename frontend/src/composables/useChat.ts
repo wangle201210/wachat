@@ -28,6 +28,7 @@ export function useChat() {
   const activeConversationId = ref<string | null>(null)
   const streamingMessage = ref('')
   const isSending = ref(false)
+  const isLoading = ref(false) // AI 正在思考中（还未开始流式响应）
 
   const currentConversation = computed(() => {
     return conversations.value.find(c => c.id === activeConversationId.value)
@@ -79,6 +80,7 @@ export function useChat() {
     }
 
     isSending.value = true
+    isLoading.value = true // 开始加载
     streamingMessage.value = ''
 
     try {
@@ -98,6 +100,7 @@ export function useChat() {
     } catch (error) {
       console.error('Failed to send message:', error)
       isSending.value = false
+      isLoading.value = false
       streamingMessage.value = ''
     }
   }
@@ -113,6 +116,10 @@ export function useChat() {
       runtime.EventsOn('stream:response', (data: any) => {
         console.log('Stream response:', data)
         if (data.chunk) {
+          // 收到第一个 chunk 时，关闭加载状态
+          if (isLoading.value) {
+            isLoading.value = false
+          }
           streamingMessage.value += data.chunk
         }
       })
@@ -129,6 +136,7 @@ export function useChat() {
         }
         streamingMessage.value = ''
         isSending.value = false
+        isLoading.value = false
       })
 
       runtime.EventsOn('stream:error', (data: any) => {
@@ -136,6 +144,7 @@ export function useChat() {
         alert('发送消息失败: ' + data.error)
         streamingMessage.value = ''
         isSending.value = false
+        isLoading.value = false
       })
 
       runtime.EventsOn('conversation:title-updated', (data: any) => {
@@ -157,6 +166,7 @@ export function useChat() {
     currentMessages,
     streamingMessage,
     isSending,
+    isLoading,
     loadConversations,
     createNewConversation,
     selectConversation,
