@@ -7,7 +7,7 @@ toolchain go1.24.4
 require (
 	github.com/cloudwego/eino v0.5.12
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.4
-	github.com/gogf/gf/contrib/drivers/mysql/v2 v2.9.0
+	github.com/gogf/gf/contrib/drivers/sqlite/v2 v2.9.0
 	github.com/gogf/gf/v2 v2.9.0
 	github.com/wailsapp/wails/v2 v2.10.2
 	github.com/wangle201210/go-rag/server v0.0.0-00010101000000-000000000000
@@ -39,6 +39,7 @@ require (
 	github.com/cloudwego/eino-ext/components/document/transformer/splitter/recursive v0.0.0-20250424061409-ccd60fbc7c1c // indirect
 	github.com/cloudwego/eino-ext/components/embedding/openai v0.0.0-20250424061409-ccd60fbc7c1c // indirect
 	github.com/cloudwego/eino-ext/components/indexer/es8 v0.0.0-20250610035057-2c4e7c8488a5 // indirect
+	github.com/cloudwego/eino-ext/components/indexer/qdrant v0.0.0-20251107064029-2e128d3d2258 // indirect
 	github.com/cloudwego/eino-ext/components/model/qwen v0.0.0-20250610035057-2c4e7c8488a5 // indirect
 	github.com/cloudwego/eino-ext/components/retriever/es8 v0.0.0-20250610035057-2c4e7c8488a5 // indirect
 	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.1 // indirect
@@ -52,6 +53,7 @@ require (
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/getkin/kin-openapi v0.118.0 // indirect
+	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -95,6 +97,8 @@ require (
 	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/qdrant/go-client v1.15.2 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
@@ -111,7 +115,7 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.19 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
-	github.com/wangle201210/chat-history v0.0.0-20250402104704-5eec15d5419e // indirect
+	github.com/wangle201210/chat-history v0.0.1 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d // indirect
 	github.com/xuri/excelize/v2 v2.9.0 // indirect
@@ -128,8 +132,15 @@ require (
 	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240827150818-7e3bb234dfed // indirect
+	google.golang.org/grpc v1.66.0 // indirect
+	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/driver/mysql v1.5.7 // indirect
+	modernc.org/libc v1.22.5 // indirect
+	modernc.org/mathutil v1.5.0 // indirect
+	modernc.org/memory v1.5.0 // indirect
+	modernc.org/sqlite v1.23.1 // indirect
 )
 
 // 本地开发时使用本地路径引用 go-rag

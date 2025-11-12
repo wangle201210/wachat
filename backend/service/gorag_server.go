@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/gogf/gf/contrib/drivers/mysql/v2"
+	_ "github.com/gogf/gf/contrib/drivers/sqlite/v2"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/wangle201210/go-rag/server/server"
 	"github.com/wangle201210/wachat/backend/config"
@@ -62,6 +62,8 @@ func (s *GoRagServerService) Start(ctx context.Context) error {
 			close(s.done)
 		}()
 
+		// 等待一小段时间让服务器启动
+		time.Sleep(20 * time.Second)
 		// 调用 go-rag 的公开 Start 函数
 		// 注意：server.Start 是阻塞调用，会启动 HTTP 服务器
 		// go-rag 会自动使用 GoFrame 的全局配置
@@ -71,9 +73,6 @@ func (s *GoRagServerService) Start(ctx context.Context) error {
 	}()
 
 	s.isRunning = true
-
-	// 等待一小段时间让服务器启动
-	time.Sleep(2 * time.Second)
 	g.Log().Infof(ctx, "Go-rag server started successfully on %s", s.config.Server.Address)
 	g.Log().Info(ctx, "Access go-rag Web UI at: http://localhost"+s.config.Server.Address)
 
