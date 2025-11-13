@@ -8,10 +8,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.11",
     "vue": "^3.5.22",
-    "vue-router": "^4",
     "vue-renderer-markdown": "^0.0.61-beta.8",
-    "katex": "^0.16.11"
+    "vue-router": "^4"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",
