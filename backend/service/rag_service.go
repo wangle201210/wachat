@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/gogf/gf/v2/frame/g"
@@ -119,13 +122,43 @@ func (r *RAGServiceImpl) callAPI(ctx context.Context, method, path string, reqBo
 	if err := json.Unmarshal(body, respData); err != nil {
 		return fmt.Errorf("failed to decode response data: %w", err)
 	}
-
+	g.Log().Debugf(ctx, "RAG service response: %s", string(body))
 	return nil
 }
 
 // IsEnabled 检查 RAG 服务是否启用
 func (r *RAGServiceImpl) IsEnabled() bool {
 	return r.config != nil && r.config.Enabled && r.baseURL != ""
+}
+
+// CheckHealth 检查 RAG 服务是否健康（检测端口）
+func (r *RAGServiceImpl) CheckHealth() error {
+	if !r.IsEnabled() {
+		return fmt.Errorf("RAG service is not enabled")
+	}
+
+	if r.config.Server == nil || r.config.Server.Address == "" {
+		return fmt.Errorf("server address not configured")
+	}
+
+	// 解析地址（如 ":8000"）
+	address := r.config.Server.Address
+	if strings.HasPrefix(address, ":") {
+		address = "localhost" + address
+	}
+
+	// 尝试连接（快速超时，避免阻塞对话）
+	conn, err := net.DialTimeout("tcp", address, 500*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("cannot connect to go-rag server: %w", err)
+	}
+	conn.Close()
+	return nil
+}
+
+// isHealthy 内部方法：检查服务是否健康（不抛错，只返回 true/false）
+func (r *RAGServiceImpl) isHealthy() bool {
+	return r.CheckHealth() == nil
 }
 
 // GetKnowledgeBases 获取所有知识库列表
@@ -198,6 +231,12 @@ func (r *RAGServiceImpl) RetrieveDocuments(ctx context.Context, query string) ([
 		return nil, nil // 如果未启用，返回空列表
 	}
 
+	// 健康检查：如果服务不健康，直接返回空列表，不影响对话
+	if !r.isHealthy() {
+		g.Log().Debug(ctx, "RAG service is not healthy, skipping retrieval")
+		return nil, nil
+	}
+
 	// 检查是否配置了默认知识库
 	if r.config.DefaultKnowledgeBase == "" {
 		g.Log().Debug(ctx, "DefaultKnowledgeBase not configured, skipping RAG retrieval")
@@ -217,6 +256,12 @@ func (r *RAGServiceImpl) RetrieveDocuments(ctx context.Context, query string) ([
 // RetrieveWithContext 检索文档并返回上下文信息
 // 这可以用于增强 AI 的回答
 func (r *RAGServiceImpl) RetrieveWithContext(ctx context.Context, query string) (string, error) {
+	// 先检查服务是否健康，不健康直接返回空
+	if !r.IsEnabled() || !r.isHealthy() {
+		g.Log().Debug(ctx, "RAG service not available, skipping context retrieval")
+		return "", nil
+	}
+
 	results, err := r.RetrieveDocuments(ctx, query)
 	if err != nil || len(results) == 0 {
 		return "", nil

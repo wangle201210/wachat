@@ -330,6 +330,21 @@ onMounted(async () => {
   } catch (err) {
     console.error('Failed to get RAG server info:', err)
   }
+
+  // Listen for config changes
+  const runtime = (window as any).runtime
+  runtime.EventsOn('config:changed', (data: any) => {
+    console.log('Config changed:', data)
+    // Show notification
+    alert('配置文件已更新！\n\n' + (data.message || '配置已自动重新加载'))
+
+    // Reload RAG status
+    GetRAGServerInfo().then(info => {
+      ragEnabled.value = info.enabled
+    }).catch(err => {
+      console.error('Failed to refresh RAG status:', err)
+    })
+  })
 })
 </script>
 

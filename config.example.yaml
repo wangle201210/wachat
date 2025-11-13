@@ -39,116 +39,28 @@ binaries:
 
 rag:
   enabled: false                      # Enable RAG functionality for AI conversations
+  autoStart: false                    # Auto-start RAG service on app startup (default: false)
   topK: 5                             # Number of documents to retrieve
   defaultKnowledgeBase: ""            # Default knowledge base name (for automatic RAG enhancement)
+  downloadURL: "https://github.com/wangle201210/go-rag/releases/latest/download"  # Go-rag download URL
+  installPath: ""                     # Install path (empty for default: ~/.wachat/go-rag)
+
+# Qdrant Configuration (Vector Database for go-rag)
+# Qdrant is a vector database required by go-rag when using qdrant as vector storage
+qdrant:
+  enabled: true                       # Enable Qdrant (set to true if using Qdrant as vector storage)
+  autoStart: false                    # Auto-start Qdrant service on app startup (default: false)
+  port: 6333                          # HTTP port for Qdrant
+  grpcPort: 6334                      # gRPC port for Qdrant
+  downloadURL: "https://github.com/qdrant/qdrant/releases/latest/download"  # Qdrant download URL
+  installPath: ""                     # Install path (empty for default: ~/.wachat/qdrant)
 
 # Go-rag HTTP Server Configuration (Optional)
-# https://goframe.org/docs/web/server-config-file-template
 server:
   address: ":8000"         # Server port (leave empty to disable server)
-  openapiPath: "/api.json"
-  swaggerPath: "/swagger"
 
-# Go-rag Logger Configuration
-# https://goframe.org/docs/core/glog-config
 logger:
   level: "all"      # Log level: all, debug, info, warn, error
   stdout: true      # Output to console
-  # path: "./logs/" # Log file path (optional)
-  # file: "{Y-m-d}.log" # Log file format (optional)
-
-# Database Configuration (Required if server is enabled)
-# Go-rag server uses MySQL to store document metadata
-database:
-  default:
-    host: "127.0.0.1"
-    port: "3306"
-    user: "root"
-    pass: "123456"
-    name: "go_rag"
-    type: "mysql"
-    charset: "utf8mb4"  # Important for special characters in documents
-
-# Elasticsearch Configuration
-es:
-  address: "http://localhost:9200"
-  indexName: "knowledge_base"
-  # username: ""  # Optional
-  # password: ""  # Optional
-
-# Embedding Model Configuration
-# Used for converting text to vectors
-embedding:
-  apiKey: "sk-your-key-here"
-  baseURL: "https://api.siliconflow.cn/v1"
-  model: "BAAI/bge-m3"
-
-# Rerank Model Configuration (Optional)
-# Improves retrieval quality by reranking results
-rerank:
-  apiKey: "sk-your-key-here"  # Can reuse embedding.apiKey
-  baseURL: "https://api.siliconflow.cn/v1"
-  model: "BAAI/bge-reranker-v2-m3"
-
-# Rewrite Model Configuration (Optional)
-# Rewrites user queries for better retrieval
-rewrite:
-  apiKey: "sk-your-key-here"
-  baseURL: "https://api.siliconflow.cn/v1"
-  model: "Qwen/Qwen2.5-7B-Instruct"
-
-# QA Model Configuration (Optional)
-# Generates Q&A pairs from documents
-qa:
-  apiKey: "sk-your-key-here"
-  baseURL: "https://api.siliconflow.cn/v1"
-  model: "Qwen/Qwen2.5-7B-Instruct"
-
-# Chat Model Configuration (Optional)
-# Used for go-rag's chat functionality
-chat:
-  apiKey: "sk-your-key-here"
-  baseURL: "https://api.siliconflow.cn/v1"
-  model: "deepseek-ai/DeepSeek-V3"
-
-# ============================================================================
-# Usage Examples
-# ============================================================================
-
-# Example 1: RAG without server (only core functionality)
-# rag:
-#   enabled: true
-# server:
-#   address: ""  # Empty to disable server
-# es:
-#   address: "http://localhost:9200"
-#   indexName: "my_knowledge"
-# embedding:
-#   apiKey: "sk-xxx"
-#   baseURL: "https://api.siliconflow.cn/v1"
-#   model: "BAAI/bge-m3"
-
-# Example 2: Full go-rag server with UI
-# rag:
-#   enabled: true
-# server:
-#   address: ":8000"
-# database:
-#   default:
-#     host: "127.0.0.1"
-#     pass: "your-mysql-password"
-# es:
-#   address: "http://localhost:9200"
-# embedding:
-#   apiKey: "sk-xxx"
-#   baseURL: "https://api.siliconflow.cn/v1"
-
-# Example 3: Use different models for different tasks
-# embedding:
-#   model: "BAAI/bge-m3"           # Fast and accurate
-# rerank:
-#   model: "BAAI/bge-reranker-v2-m3"  # Better quality
-# rewrite:
-#   model: "Qwen/Qwen2.5-7B-Instruct" # Good at query rewriting
-# chat:
-#   model: "deepseek-ai/DeepSeek-V3"  # Powerful reasoning
+  path: "./logs/" # Log file path (optional)
+  file: "{Y-m-d}.log" # Log file format (optional)
