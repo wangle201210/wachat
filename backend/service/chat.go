@@ -134,21 +134,6 @@ func (c *ChatService) UpdateConversationTitle(id, title string) error {
 	return c.convRepo.Update(dbConv)
 }
 
-// ClearMessages clears all messages in a conversation
-func (c *ChatService) ClearMessages(id string) error {
-	if err := c.msgRepo.DeleteByConversation(id); err != nil {
-		return err
-	}
-
-	// Update conversation timestamp
-	dbConv, err := c.convRepo.Get(id)
-	if err != nil {
-		return err
-	}
-	dbConv.UpdatedAt = time.Now().Unix()
-	return c.convRepo.Update(dbConv)
-}
-
 // SaveMessage saves a message to database
 func (c *ChatService) SaveMessage(conversationID string, msg *schema.Message) error {
 	dbMsg := &model.DBMessage{
