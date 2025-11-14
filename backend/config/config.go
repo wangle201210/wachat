@@ -316,7 +316,7 @@ server:
 logger:
     level: "all"
     stdout: true
-    path: "/User/wanna/.wachat/logs"
+    path: "~/.wachat/logs"
     file: "{Y-m-d}.log"
 `
 
