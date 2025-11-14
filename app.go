@@ -473,3 +473,42 @@ func (a *App) UpdateRAGSettings(topK int, defaultKnowledgeBase string) error {
 func (a *App) GetKnowledgeBases() ([]string, error) {
 	return a.chatAPI.GetKnowledgeBases(a.ctx)
 }
+
+// AISettings represents AI configuration settings
+type AISettings struct {
+	BaseURL string `json:"baseURL"`
+	APIKey  string `json:"apiKey"`
+	Model   string `json:"model"`
+}
+
+// GetAISettings returns current AI settings
+func (a *App) GetAISettings() *AISettings {
+	baseURL, apiKey, model := config.GetAISettings()
+	return &AISettings{
+		BaseURL: baseURL,
+		APIKey:  apiKey,
+		Model:   model,
+	}
+}
+
+// UpdateAISettings updates AI settings
+func (a *App) UpdateAISettings(baseURL, apiKey, model string) error {
+	if baseURL == "" {
+		return fmt.Errorf("base URL cannot be empty")
+	}
+	if model == "" {
+		return fmt.Errorf("model cannot be empty")
+	}
+
+	return config.UpdateAISettings(a.ctx, baseURL, apiKey, model)
+}
+
+// GetConfig reads the entire config file content
+func (a *App) GetConfig() (string, error) {
+	return config.GetConfigContent(a.ctx)
+}
+
+// SaveConfig saves the entire config file content
+func (a *App) SaveConfig(content string) error {
+	return config.SaveConfigContent(a.ctx, content)
+}

@@ -57,6 +57,18 @@
           </svg>
         </button>
 
+        <!-- Config Button (Right) -->
+        <button
+          @click="toggleEditConfig"
+          :class="['px-4 py-2 hover:bg-gray-100 flex-shrink-0', editingConfig ? 'bg-gray-200' : '']"
+          title="配置文件"
+        >
+          <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
+
         <!-- History Button (Right) -->
         <button
           @click="showHistory = !showHistory"
@@ -146,6 +158,60 @@
             </div>
           </div>
         </div>
+
+      </div>
+    </transition>
+
+    <!-- Config Editor Sidebar -->
+    <transition
+      enter-active-class="transition-all duration-200"
+      leave-active-class="transition-all duration-200"
+      enter-from-class="translate-x-full"
+      leave-to-class="translate-x-full"
+    >
+      <div v-if="editingConfig" class="w-[500px] border-l border-gray-200 flex flex-col bg-white">
+        <!-- Header -->
+        <div class="border-b border-gray-200 p-4 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-900">配置文件编辑</h3>
+          <button
+            @click="toggleEditConfig"
+            class="text-gray-400 hover:text-gray-600"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Config Editor Content -->
+        <div class="flex-1 flex flex-col p-4 overflow-hidden">
+          <!-- Loading indicator -->
+          <div v-if="loadingConfig" class="text-sm text-gray-500 text-center py-8">
+            加载中...
+          </div>
+
+          <!-- Config editor -->
+          <div v-else class="flex flex-col h-full">
+            <textarea
+              v-model="configContent"
+              class="flex-1 px-3 py-2 text-sm font-mono border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              placeholder="配置文件内容..."
+            />
+
+            <!-- Save Button -->
+            <button
+              @click="saveConfig"
+              :disabled="savingConfig"
+              class="w-full mt-4 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {{ savingConfig ? '保存中...' : '保存配置' }}
+            </button>
+
+            <p class="text-xs text-gray-500 mt-3">
+              💡 提示：修改配置后需要重启应用才能生效。
+            </p>
+          </div>
+        </div>
       </div>
     </transition>
 
@@ -162,7 +228,7 @@ import ChatInput from '../components/ChatInput.vue'
 import AvatarAI from '../components/AvatarAI.vue'
 import { useChat } from '../composables/useChat'
 import { useAutoScroll } from '../composables/useAutoScroll'
-import { DeleteConversation, GetRAGServerInfo } from '../../wailsjs/go/main/App'
+import { DeleteConversation, GetRAGServerInfo, GetConfig, SaveConfig } from '../../wailsjs/go/main/App'
 
 const router = useRouter()
 const inputMessage = ref('')
@@ -170,6 +236,12 @@ const showHistory = ref(false)
 const ragEnabled = ref(false)
 const openTabs = ref<string[]>([])
 let tempTabCounter = 0 // 用于生成临时tab ID
+
+// Config editing
+const editingConfig = ref(false)
+const configContent = ref('')
+const savingConfig = ref(false)
+const loadingConfig = ref(false)
 
 // Chat logic
 const {
@@ -306,6 +378,45 @@ async function deleteConversation(id: string) {
   }
 }
 
+// Load config content
+async function loadConfig() {
+  loadingConfig.value = true
+  try {
+    const content = await GetConfig()
+    configContent.value = content
+  } catch (err: any) {
+    console.error('Failed to load config:', err)
+    alert('加载配置失败：' + (err.message || err))
+  } finally {
+    loadingConfig.value = false
+  }
+}
+
+// Toggle edit config
+async function toggleEditConfig() {
+  if (!editingConfig.value) {
+    editingConfig.value = true
+    await loadConfig()
+  } else {
+    editingConfig.value = false
+  }
+}
+
+// Save config content
+async function saveConfig() {
+  savingConfig.value = true
+  try {
+    await SaveConfig(configContent.value)
+    editingConfig.value = false
+    alert('配置已保存！请重启应用使配置生效。')
+  } catch (err: any) {
+    console.error('Failed to save config:', err)
+    alert('保存失败：' + (err.message || err))
+  } finally {
+    savingConfig.value = false
+  }
+}
+
 // Initialize
 onMounted(async () => {
   setupEventListeners()
@@ -336,7 +447,7 @@ onMounted(async () => {
   runtime.EventsOn('config:changed', (data: any) => {
     console.log('Config changed:', data)
     // Show notification
-    alert('配置文件已更新！\n\n' + (data.message || '配置已自动重新加载'))
+    alert('配置文件已更新！\n\n' + (data.message || '请重启应用使配置生效'))
 
     // Reload RAG status
     GetRAGServerInfo().then(info => {

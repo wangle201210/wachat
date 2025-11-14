@@ -38,7 +38,7 @@ binaries:
 # ============================================================================
 
 rag:
-  enabled: false                      # Enable RAG functionality for AI conversations
+  enabled: true                      # Enable RAG functionality for AI conversations
   autoStart: false                    # Auto-start RAG service on app startup (default: false)
   topK: 5                             # Number of documents to retrieve
   defaultKnowledgeBase: ""            # Default knowledge base name (for automatic RAG enhancement)
