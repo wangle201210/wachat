@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -25,31 +24,15 @@ type ProgressCallback func(downloaded, total int64, percent float64, status stri
 
 // RAGManagerService 管理 go-rag 的下载、安装、启动
 type RAGManagerService struct {
-	ctx       context.Context
-	config    *config.RAGConfig
-	cmd       *exec.Cmd
-	isRunning bool
-	callback  ProgressCallback
-	done      chan struct{} // 用于通知进程已停止
+	*BaseServiceManager
+	config *config.RAGConfig
 }
 
 // NewRAGManagerService 创建 RAG 管理器服务
 func NewRAGManagerService(ctx context.Context, cfg *config.RAGConfig) *RAGManagerService {
 	return &RAGManagerService{
-		ctx:    ctx,
-		config: cfg,
-	}
-}
-
-// SetProgressCallback 设置进度回调函数
-func (r *RAGManagerService) SetProgressCallback(callback ProgressCallback) {
-	r.callback = callback
-}
-
-// notifyProgress 通知进度
-func (r *RAGManagerService) notifyProgress(downloaded, total int64, percent float64, status string) {
-	if r.callback != nil {
-		r.callback(downloaded, total, percent, status)
+		BaseServiceManager: NewBaseServiceManager(ctx, "RAG"),
+		config:             cfg,
 	}
 }
 
@@ -58,11 +41,6 @@ func (r *RAGManagerService) IsInstalled() bool {
 	binaryPath := r.getBinaryPath()
 	_, err := os.Stat(binaryPath)
 	return err == nil
-}
-
-// IsRunning 检查 go-rag 是否正在运行
-func (r *RAGManagerService) IsRunning() bool {
-	return r.isRunning && r.cmd != nil && r.cmd.Process != nil
 }
 
 // CheckHealth 检查 go-rag 服务是否健康（检测端口）
@@ -77,39 +55,17 @@ func (r *RAGManagerService) CheckHealth() error {
 		address = "localhost" + address
 	}
 
-	// 尝试连接
-	conn, err := net.DialTimeout("tcp", address, 3*time.Second)
-	if err != nil {
-		return fmt.Errorf("cannot connect to go-rag server: %w", err)
-	}
-	conn.Close()
-	return nil
+	return r.CheckTCPHealth(address)
 }
 
 // WaitForHealth 等待服务健康（最多等待 30 秒）
 func (r *RAGManagerService) WaitForHealth(timeout time.Duration) error {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	timeoutChan := time.After(timeout)
-
-	for {
-		select {
-		case <-timeoutChan:
-			return fmt.Errorf("timeout waiting for go-rag server to become healthy")
-		case <-ticker.C:
-			if err := r.CheckHealth(); err == nil {
-				g.Log().Info(r.ctx, "Go-rag server is healthy")
-				return nil
-			}
-			g.Log().Debug(r.ctx, "Waiting for go-rag server to become healthy...")
-		}
-	}
+	return r.BaseServiceManager.WaitForHealth(timeout, r.CheckHealth)
 }
 
 // Download 下载 go-rag 二进制文件
 func (r *RAGManagerService) Download() error {
-	r.notifyProgress(0, 0, 0, "准备下载...")
+	r.NotifyProgress(0, 0, 0, "准备下载...")
 
 	// 确定下载 URL
 	downloadURL := r.getDownloadURL()
@@ -122,7 +78,7 @@ func (r *RAGManagerService) Download() error {
 	}
 
 	// 下载文件
-	r.notifyProgress(0, 0, 0, "正在连接...")
+	r.NotifyProgress(0, 0, 0, "正在连接...")
 	resp, err := http.Get(downloadURL)
 	if err != nil {
 		return fmt.Errorf("failed to download: %w", err)
@@ -150,7 +106,7 @@ func (r *RAGManagerService) Download() error {
 	defer out.Close()
 
 	// 下载并显示进度
-	r.notifyProgress(0, totalSize, 0, "正在下载...")
+	r.NotifyProgress(0, totalSize, 0, "正在下载...")
 	downloaded := int64(0)
 	buf := make([]byte, 32*1024) // 32KB buffer
 
@@ -162,7 +118,7 @@ func (r *RAGManagerService) Download() error {
 			}
 			downloaded += int64(n)
 			percent := float64(downloaded) / float64(totalSize) * 100
-			r.notifyProgress(downloaded, totalSize, percent, "正在下载...")
+			r.NotifyProgress(downloaded, totalSize, percent, "正在下载...")
 		}
 		if err == io.EOF {
 			break
@@ -175,7 +131,7 @@ func (r *RAGManagerService) Download() error {
 	out.Close()
 
 	// 解压
-	r.notifyProgress(downloaded, totalSize, 100, "正在解压...")
+	r.NotifyProgress(downloaded, totalSize, 100, "正在解压...")
 	if err := r.extractArchive(tmpFile, installPath); err != nil {
 		return fmt.Errorf("failed to extract: %w", err)
 	}
@@ -191,7 +147,7 @@ func (r *RAGManagerService) Download() error {
 		}
 	}
 
-	r.notifyProgress(downloaded, totalSize, 100, "下载完成")
+	r.NotifyProgress(downloaded, totalSize, 100, "下载完成")
 	g.Log().Info(r.ctx, "Go-rag downloaded successfully")
 	return nil
 }
@@ -322,7 +278,7 @@ func (r *RAGManagerService) extractZip(archivePath, destPath string) error {
 
 // Start 启动 go-rag 服务
 func (r *RAGManagerService) Start() error {
-	if r.isRunning {
+	if r.IsRunning() {
 		return fmt.Errorf("go-rag is already running")
 	}
 
@@ -334,8 +290,8 @@ func (r *RAGManagerService) Start() error {
 	g.Log().Infof(r.ctx, "Starting go-rag from: %s", binaryPath)
 
 	// 创建命令
-	r.cmd = exec.Command(binaryPath)
-	r.cmd.Dir = r.config.InstallPath
+	cmd := exec.Command(binaryPath)
+	cmd.Dir = r.config.InstallPath
 
 	// 设置环境变量（传递配置文件路径）
 	configPath := os.Getenv("WACHAT_CONFIG_PATH")
@@ -344,76 +300,20 @@ func (r *RAGManagerService) Start() error {
 			configPath = cwd
 		}
 	}
-	r.cmd.Env = append(os.Environ(), "WACHAT_CONFIG_PATH="+configPath)
+	cmd.Env = append(os.Environ(), "WACHAT_CONFIG_PATH="+configPath)
 
-	// 创建 done channel 用于通知进程结束
-	r.done = make(chan struct{})
-
-	// 启动进程
-	if err := r.cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start go-rag: %w", err)
-	}
-
-	r.isRunning = true
-	g.Log().Info(r.ctx, "Go-rag started successfully")
-
-	// 在后台等待进程结束
-	go func() {
-		if err := r.cmd.Wait(); err != nil {
-			g.Log().Warningf(context.Background(), "Go-rag process exited with error: %v", err)
-		} else {
-			g.Log().Info(context.Background(), "Go-rag process exited normally")
-		}
-		r.isRunning = false
-		close(r.done) // 通知进程已结束
-	}()
-
-	return nil
+	// 使用基类的 StartProcess 方法
+	return r.StartProcess(cmd, "Go-rag")
 }
 
 // Stop 停止 go-rag 服务
 func (r *RAGManagerService) Stop() error {
-	if !r.isRunning || r.cmd == nil || r.cmd.Process == nil {
-		return fmt.Errorf("go-rag is not running")
-	}
-
-	g.Log().Info(r.ctx, "Stopping go-rag...")
-
-	// 发送终止信号
-	if err := r.cmd.Process.Kill(); err != nil {
-		return fmt.Errorf("failed to stop go-rag: %w", err)
-	}
-
-	// 等待进程结束（最多 5 秒）
-	// 不能再次调用 Wait()，因为 Start() 中的 goroutine 已经在等待
-	// 使用 done channel 来等待
-	select {
-	case <-r.done:
-		g.Log().Info(r.ctx, "Go-rag stopped successfully")
-	case <-time.After(5 * time.Second):
-		g.Log().Warning(r.ctx, "Go-rag did not stop gracefully within timeout")
-		r.isRunning = false
-	}
-
-	r.cmd = nil
-	return nil
+	return r.StopProcess("Go-rag")
 }
 
 // GetStatus 获取 RAG 服务状态
 func (r *RAGManagerService) GetStatus() map[string]interface{} {
-	status := map[string]interface{}{
-		"installed": r.IsInstalled(),
-		"running":   r.IsRunning(),
-		"healthy":   false,
-	}
-
-	if r.IsRunning() {
-		if err := r.CheckHealth(); err == nil {
-			status["healthy"] = true
-		}
-	}
-
-	return status
+	return r.BaseServiceManager.GetStatus(r.IsInstalled(), r.CheckHealth)
 }
 
 // getDownloadURL 获取下载 URL（根据系统和架构）

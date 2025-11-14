@@ -12,6 +12,7 @@ import (
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gcfg"
 	"github.com/gogf/gf/v2/os/gfile"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -22,6 +23,9 @@ var (
 	reloadChan   chan struct{}
 	// 配置变更回调
 	onConfigChange func()
+	// 标记是否跳过下一次自动重载（用于写入配置文件时避免循环重载）
+	skipNextReload  bool
+	skipReloadMutex sync.Mutex
 )
 
 // Config holds all configuration (GoFrame style)
@@ -161,14 +165,26 @@ func findConfigFile() string {
 
 // Load loads configuration using GoFrame
 func Load(ctx context.Context) (*Config, error) {
-	// // Find config file
+	// Find config file
 	configPath = findConfigFile()
 	g.Log().Debugf(ctx, "Loading config from: %s", configPath)
-	//
-	// // Check if config file exists
+
+	// Check if config file exists
 	if !gfile.Exists(configPath) {
-		g.Log().Debugf(ctx, "Warning: config file not found at %s, using defaults", configPath)
-		return createDefaultConfig(), nil
+		g.Log().Infof(ctx, "Config file not found at %s, creating default config", configPath)
+
+		// In production mode, create default config file
+		if !isDevMode() {
+			if err := createDefaultConfigFile(ctx, configPath); err != nil {
+				g.Log().Warningf(ctx, "Failed to create default config file: %v, using in-memory defaults", err)
+				return createDefaultConfig(), nil
+			}
+			g.Log().Infof(ctx, "Created default config file at %s", configPath)
+		} else {
+			// In dev mode, just use in-memory defaults (user should copy config.example.yaml)
+			g.Log().Warningf(ctx, "Dev mode: using in-memory defaults. Please copy config.example.yaml to config.yaml")
+			return createDefaultConfig(), nil
+		}
 	}
 	//
 	// // Set config file for GoFrame global instance
@@ -262,16 +278,55 @@ func createDefaultConfig() *Config {
 			BinPath:     "./bin",
 		},
 		RAG: &RAGConfig{
-			Enabled: false,
+			Enabled: true,
 			TopK:    5,
 		},
 		Qdrant: &QdrantConfig{
-			Enabled:   false,
-			AutoStart: false,
-			Port:      6333,
-			GrpcPort:  6334,
+			Enabled: true,
 		},
 	}
+}
+
+// createDefaultConfigFile creates a default config.yaml file at the specified path
+func createDefaultConfigFile(ctx context.Context, configPath string) error {
+	// Ensure parent directory exists
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Create default configuration YAML content
+	defaultYAML := `# wachat Configuration
+ai:
+    base_url: "https://api.siliconflow.cn/v1"
+    api_key: "sk-"
+    model: "deepseek-ai/DeepSeek-V3"
+binaries:
+    enabled: false
+    use_embedded: false
+    bin_path: "./bin"
+    startup_order: []
+rag:
+    enabled: true
+    topK: 5
+qdrant:
+    enabled: true
+server:
+    address: ":8000"
+logger:
+    level: "all"
+    stdout: true
+    path: "~/.wachat/logs"
+    file: "{Y-m-d}.log"
+`
+
+	// Write config file
+	if err := os.WriteFile(configPath, []byte(defaultYAML), 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	g.Log().Infof(ctx, "Created default config file at %s", configPath)
+	return nil
 }
 
 // applyDefaults applies default values to config
@@ -367,6 +422,16 @@ func SetOnConfigChange(callback func()) {
 
 // Reload reloads configuration from file
 func Reload(ctx context.Context) error {
+	// Check if we should skip this reload
+	skipReloadMutex.Lock()
+	if skipNextReload {
+		skipNextReload = false
+		skipReloadMutex.Unlock()
+		g.Log().Debug(ctx, "Skipping config reload (triggered by internal write)")
+		return nil
+	}
+	skipReloadMutex.Unlock()
+
 	configMutex.Lock()
 	defer configMutex.Unlock()
 
@@ -516,6 +581,57 @@ func StopWatch() {
 	}
 }
 
+// writeYAMLConfig writes RAG settings to config file
+func writeYAMLConfig(ctx context.Context, topK int, defaultKnowledgeBase string) error {
+	// Read current config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// Parse YAML as generic map
+	var configMap map[string]interface{}
+	if err := yaml.Unmarshal(data, &configMap); err != nil {
+		return fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Ensure rag section exists
+	if configMap["rag"] == nil {
+		configMap["rag"] = make(map[string]interface{})
+	}
+
+	// Update RAG settings
+	ragMap, ok := configMap["rag"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("rag config is not a map")
+	}
+
+	ragMap["topK"] = topK
+	ragMap["defaultKnowledgeBase"] = defaultKnowledgeBase
+
+	// Marshal back to YAML
+	newData, err := yaml.Marshal(configMap)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Set skip flag to avoid reload loop
+	skipReloadMutex.Lock()
+	skipNextReload = true
+	skipReloadMutex.Unlock()
+
+	// Write to file
+	if err := os.WriteFile(configPath, newData, 0644); err != nil {
+		skipReloadMutex.Lock()
+		skipNextReload = false
+		skipReloadMutex.Unlock()
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	g.Log().Infof(ctx, "Wrote RAG settings to config file: topK=%d, defaultKnowledgeBase=%s", topK, defaultKnowledgeBase)
+	return nil
+}
+
 // UpdateRAGSettings updates RAG-specific settings in memory and config file
 func UpdateRAGSettings(ctx context.Context, topK int, defaultKnowledgeBase string) error {
 	configMutex.Lock()
@@ -525,15 +641,17 @@ func UpdateRAGSettings(ctx context.Context, topK int, defaultKnowledgeBase strin
 		return fmt.Errorf("RAG config not initialized")
 	}
 
-	// Update in-memory config
+	// Update in-memory config first
 	globalConfig.RAG.TopK = topK
 	globalConfig.RAG.DefaultKnowledgeBase = defaultKnowledgeBase
 
 	g.Log().Infof(ctx, "Updated RAG settings in memory: topK=%d, defaultKnowledgeBase=%s", topK, defaultKnowledgeBase)
 
-	// Note: We only update in-memory config here
-	// The actual file update should be done by the caller if needed
-	// This allows for immediate effect without file I/O issues
+	// Write to config file for persistence
+	if err := writeYAMLConfig(ctx, topK, defaultKnowledgeBase); err != nil {
+		g.Log().Warningf(ctx, "Failed to write config file: %v", err)
+		// Continue even if file write fails - at least in-memory config is updated
+	}
 
 	// Trigger config change callback
 	if onConfigChange != nil {
@@ -552,4 +670,131 @@ func GetRAGSettings() (topK int, defaultKnowledgeBase string) {
 		return globalConfig.RAG.TopK, globalConfig.RAG.DefaultKnowledgeBase
 	}
 	return 5, "" // default values
+}
+
+// writeAIConfig writes AI settings to config file
+func writeAIConfig(ctx context.Context, baseURL, apiKey, model string) error {
+	// Read current config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// Parse YAML as generic map
+	var configMap map[string]interface{}
+	if err := yaml.Unmarshal(data, &configMap); err != nil {
+		return fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Ensure ai section exists
+	if configMap["ai"] == nil {
+		configMap["ai"] = make(map[string]interface{})
+	}
+
+	// Update AI settings
+	aiMap, ok := configMap["ai"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("ai config is not a map")
+	}
+
+	aiMap["base_url"] = baseURL
+	aiMap["api_key"] = apiKey
+	aiMap["model"] = model
+
+	// Marshal back to YAML
+	newData, err := yaml.Marshal(configMap)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Set skip flag to avoid reload loop
+	skipReloadMutex.Lock()
+	skipNextReload = true
+	skipReloadMutex.Unlock()
+
+	// Write to file
+	if err := os.WriteFile(configPath, newData, 0644); err != nil {
+		skipReloadMutex.Lock()
+		skipNextReload = false
+		skipReloadMutex.Unlock()
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	g.Log().Infof(ctx, "Wrote AI settings to config file: base_url=%s, model=%s", baseURL, model)
+	return nil
+}
+
+// UpdateAISettings updates AI-specific settings in memory and config file
+func UpdateAISettings(ctx context.Context, baseURL, apiKey, model string) error {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+
+	if globalConfig == nil || globalConfig.AI == nil {
+		return fmt.Errorf("AI config not initialized")
+	}
+
+	// Update in-memory config first
+	globalConfig.AI.BaseURL = baseURL
+	globalConfig.AI.APIKey = apiKey
+	globalConfig.AI.Model = model
+
+	g.Log().Infof(ctx, "Updated AI settings in memory: base_url=%s, model=%s", baseURL, model)
+
+	// Write to config file for persistence
+	if err := writeAIConfig(ctx, baseURL, apiKey, model); err != nil {
+		g.Log().Warningf(ctx, "Failed to write config file: %v", err)
+		// Continue even if file write fails - at least in-memory config is updated
+	}
+
+	// Trigger config change callback
+	if onConfigChange != nil {
+		go onConfigChange()
+	}
+
+	return nil
+}
+
+// GetAISettings returns current AI settings
+func GetAISettings() (baseURL, apiKey, model string) {
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+
+	if globalConfig != nil && globalConfig.AI != nil {
+		return globalConfig.AI.BaseURL, globalConfig.AI.APIKey, globalConfig.AI.Model
+	}
+	return "https://api.openai.com/v1", "", "gpt-3.5-turbo" // default values
+}
+
+// GetConfigContent reads the entire config file content
+func GetConfigContent(ctx context.Context) (string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read config file: %w", err)
+	}
+	return string(data), nil
+}
+
+// SaveConfigContent saves the entire config file content
+func SaveConfigContent(ctx context.Context, content string) error {
+	// Set skip flag to avoid reload loop
+	skipReloadMutex.Lock()
+	skipNextReload = true
+	skipReloadMutex.Unlock()
+
+	// Write to file
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		skipReloadMutex.Lock()
+		skipNextReload = false
+		skipReloadMutex.Unlock()
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	g.Log().Infof(ctx, "Wrote config file successfully")
+
+	// Reload configuration to apply changes
+	if err := Reload(ctx); err != nil {
+		g.Log().Warningf(ctx, "Failed to reload config after save: %v", err)
+	}
+
+	return nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -19,31 +18,15 @@ import (
 
 // QdrantManagerService 管理 Qdrant 的下载、安装、启动
 type QdrantManagerService struct {
-	ctx       context.Context
-	config    *config.QdrantConfig
-	cmd       *exec.Cmd
-	isRunning bool
-	callback  ProgressCallback
-	done      chan struct{} // 用于通知进程已停止
+	*BaseServiceManager
+	config *config.QdrantConfig
 }
 
 // NewQdrantManagerService 创建 Qdrant 管理器服务
 func NewQdrantManagerService(ctx context.Context, cfg *config.QdrantConfig) *QdrantManagerService {
 	return &QdrantManagerService{
-		ctx:    ctx,
-		config: cfg,
-	}
-}
-
-// SetProgressCallback 设置进度回调函数
-func (q *QdrantManagerService) SetProgressCallback(callback ProgressCallback) {
-	q.callback = callback
-}
-
-// notifyProgress 通知进度
-func (q *QdrantManagerService) notifyProgress(downloaded, total int64, percent float64, status string) {
-	if q.callback != nil {
-		q.callback(downloaded, total, percent, status)
+		BaseServiceManager: NewBaseServiceManager(ctx, "Qdrant"),
+		config:             cfg,
 	}
 }
 
@@ -54,62 +37,29 @@ func (q *QdrantManagerService) IsInstalled() bool {
 	return err == nil
 }
 
-// IsRunning 检查 Qdrant 是否正在运行
-func (q *QdrantManagerService) IsRunning() bool {
-	return q.isRunning && q.cmd != nil && q.cmd.Process != nil
-}
-
 // CheckHealth 检查 Qdrant 服务是否健康（检测端口）
 func (q *QdrantManagerService) CheckHealth() error {
 	// Qdrant 默认 HTTP 端口是 6333
 	address := fmt.Sprintf("localhost:%d", q.config.Port)
 
-	// 尝试连接
-	conn, err := net.DialTimeout("tcp", address, 3*time.Second)
-	if err != nil {
-		return fmt.Errorf("cannot connect to Qdrant server: %w", err)
+	// 尝试 TCP 连接
+	if err := q.CheckTCPHealth(address); err != nil {
+		return err
 	}
-	conn.Close()
 
 	// 尝试访问健康检查端点
 	healthURL := fmt.Sprintf("http://localhost:%d/healthz", q.config.Port)
-	resp, err := http.Get(healthURL)
-	if err != nil {
-		return fmt.Errorf("health check failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check returned status: %s", resp.Status)
-	}
-
-	return nil
+	return q.CheckHTTPHealth(healthURL)
 }
 
-// WaitForHealth 等待服务健康（最多等待 30 秒）
+// WaitForHealth 等待服务健康（最多等待指定超时时间）
 func (q *QdrantManagerService) WaitForHealth(timeout time.Duration) error {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	timeoutChan := time.After(timeout)
-
-	for {
-		select {
-		case <-timeoutChan:
-			return fmt.Errorf("timeout waiting for Qdrant server to become healthy")
-		case <-ticker.C:
-			if err := q.CheckHealth(); err == nil {
-				g.Log().Info(q.ctx, "Qdrant server is healthy")
-				return nil
-			}
-			g.Log().Debug(q.ctx, "Waiting for Qdrant server to become healthy...")
-		}
-	}
+	return q.BaseServiceManager.WaitForHealth(timeout, q.CheckHealth)
 }
 
 // Download 下载 Qdrant 二进制文件
 func (q *QdrantManagerService) Download() error {
-	q.notifyProgress(0, 0, 0, "准备下载 Qdrant...")
+	q.NotifyProgress(0, 0, 0, "准备下载 Qdrant...")
 
 	// 确定下载 URL
 	downloadURL := q.getDownloadURL()
@@ -122,7 +72,7 @@ func (q *QdrantManagerService) Download() error {
 	}
 
 	// 下载文件
-	q.notifyProgress(0, 0, 0, "正在连接...")
+	q.NotifyProgress(0, 0, 0, "正在连接...")
 	resp, err := http.Get(downloadURL)
 	if err != nil {
 		return fmt.Errorf("failed to download: %w", err)
@@ -149,7 +99,7 @@ func (q *QdrantManagerService) Download() error {
 	defer out.Close()
 
 	// 下载并显示进度
-	q.notifyProgress(0, totalSize, 0, "正在下载...")
+	q.NotifyProgress(0, totalSize, 0, "正在下载...")
 	downloaded := int64(0)
 	buf := make([]byte, 32*1024) // 32KB buffer
 
@@ -161,7 +111,7 @@ func (q *QdrantManagerService) Download() error {
 			}
 			downloaded += int64(n)
 			percent := float64(downloaded) / float64(totalSize) * 100
-			q.notifyProgress(downloaded, totalSize, percent, "正在下载...")
+			q.NotifyProgress(downloaded, totalSize, percent, "正在下载...")
 		}
 		if err == io.EOF {
 			break
@@ -174,7 +124,7 @@ func (q *QdrantManagerService) Download() error {
 	out.Close()
 
 	// 解压
-	q.notifyProgress(downloaded, totalSize, 100, "正在解压...")
+	q.NotifyProgress(downloaded, totalSize, 100, "正在解压...")
 	if err := q.extractArchive(tmpFile, installPath); err != nil {
 		return fmt.Errorf("failed to extract: %w", err)
 	}
@@ -190,7 +140,7 @@ func (q *QdrantManagerService) Download() error {
 		}
 	}
 
-	q.notifyProgress(downloaded, totalSize, 100, "下载完成")
+	q.NotifyProgress(downloaded, totalSize, 100, "下载完成")
 	g.Log().Info(q.ctx, "Qdrant downloaded successfully")
 	return nil
 }
@@ -218,7 +168,7 @@ func (q *QdrantManagerService) extractArchive(archivePath, destPath string) erro
 
 // Start 启动 Qdrant 服务
 func (q *QdrantManagerService) Start() error {
-	if q.isRunning {
+	if q.IsRunning() {
 		return fmt.Errorf("Qdrant is already running")
 	}
 
@@ -237,82 +187,30 @@ func (q *QdrantManagerService) Start() error {
 	}
 
 	// 创建命令
-	q.cmd = exec.Command(binaryPath)
-	q.cmd.Dir = q.config.InstallPath
-	q.cmd.Stdout = logFile
-	q.cmd.Stderr = logFile
+	cmd := exec.Command(binaryPath)
+	cmd.Dir = q.config.InstallPath
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.Env = os.Environ()
 
-	// 设置环境变量
-	q.cmd.Env = os.Environ()
-
-	// 创建 done channel 用于通知进程结束
-	q.done = make(chan struct{})
-
-	// 启动进程
-	if err := q.cmd.Start(); err != nil {
+	// 使用基类的 StartProcess 方法
+	if err := q.StartProcess(cmd, "Qdrant"); err != nil {
 		logFile.Close()
-		return fmt.Errorf("failed to start Qdrant: %w", err)
+		return err
 	}
 
-	q.isRunning = true
-	g.Log().Infof(q.ctx, "Qdrant started successfully (PID: %d, logs: %s)", q.cmd.Process.Pid, logPath)
-
-	// 在后台等待进程结束
-	go func() {
-		if err := q.cmd.Wait(); err != nil {
-			g.Log().Warningf(context.Background(), "Qdrant process exited with error: %v (check logs at: %s)", err, logPath)
-		} else {
-			g.Log().Info(context.Background(), "Qdrant process exited normally")
-		}
-		q.isRunning = false
-		logFile.Close()
-		close(q.done) // 通知进程已结束
-	}()
-
+	g.Log().Infof(q.ctx, "Qdrant logs: %s", logPath)
 	return nil
 }
 
 // Stop 停止 Qdrant 服务
 func (q *QdrantManagerService) Stop() error {
-	if !q.isRunning || q.cmd == nil || q.cmd.Process == nil {
-		return fmt.Errorf("Qdrant is not running")
-	}
-
-	g.Log().Info(q.ctx, "Stopping Qdrant...")
-
-	// 发送终止信号
-	if err := q.cmd.Process.Kill(); err != nil {
-		return fmt.Errorf("failed to stop Qdrant: %w", err)
-	}
-
-	// 等待进程结束（最多 5 秒）
-	select {
-	case <-q.done:
-		g.Log().Info(q.ctx, "Qdrant stopped successfully")
-	case <-time.After(5 * time.Second):
-		g.Log().Warning(q.ctx, "Qdrant did not stop gracefully within timeout")
-		q.isRunning = false
-	}
-
-	q.cmd = nil
-	return nil
+	return q.StopProcess("Qdrant")
 }
 
 // GetStatus 获取 Qdrant 服务状态
 func (q *QdrantManagerService) GetStatus() map[string]interface{} {
-	status := map[string]interface{}{
-		"installed": q.IsInstalled(),
-		"running":   q.IsRunning(),
-		"healthy":   false,
-	}
-
-	if q.IsRunning() {
-		if err := q.CheckHealth(); err == nil {
-			status["healthy"] = true
-		}
-	}
-
-	return status
+	return q.BaseServiceManager.GetStatus(q.IsInstalled(), q.CheckHealth)
 }
 
 // getDownloadURL 获取下载 URL（根据系统和架构）

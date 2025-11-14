@@ -188,11 +188,6 @@ func (bm *BinaryManager) startBinary(ctx context.Context, name string) error {
 	return nil
 }
 
-// GetProcessCount returns the number of running processes
-func (bm *BinaryManager) GetProcessCount() int {
-	return len(bm.processes)
-}
-
 // Cleanup terminates all managed processes
 func (bm *BinaryManager) Cleanup() {
 	ctx := context.Background()

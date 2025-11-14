@@ -14,8 +14,8 @@
 - 📑 **多Tab管理** - 支持多个对话标签页，类似浏览器的使用体验
 - 💾 **本地持久化** - SQLite 数据库存储对话历史
 - 🔌 **OpenAI 兼容** - 支持 OpenAI API 和其他兼容接口
-- 🎯 **懒加载对话** - 新对话只在发送第一条消息时才创建，避免空对话
 - ⚡ **Markdown 渲染** - 完美支持代码高亮和数学公式
+- 📚 **RAG 知识库** - 集成 go-rag 和 Qdrant 向量数据库，支持文档检索增强对话
 
 ## 🛠 技术栈
 
@@ -24,6 +24,8 @@
 - **语言**: Go 1.22+
 - **数据库**: SQLite (gorm)
 - **AI SDK**: [Cloudwego Eino](https://github.com/cloudwego/eino) - 字节跳动开源的 LLM 应用开发框架
+- **RAG**: [go-rag](https://github.com/wangle201210/go-rag) - 知识库检索增强生成系统
+- **向量数据库**: [Qdrant](https://qdrant.tech/) - 高性能向量搜索引擎
 
 ### 前端
 - **框架**: Vue 3.5+ (Composition API)
@@ -85,21 +87,38 @@ ai:
   api_key: "your-api-key-here"
   model: "gpt-3.5-turbo"
 
+# RAG Configuration (Optional)
+rag:
+  enabled: true                     # 是否启用 RAG 功能
+  auto_start: false                  # 启动时自动启动 RAG 服务
+  top_k: 5                          # 检索返回的文档数量
+  default_knowledge_base: ""        # 默认知识库名称
+  server:
+    address: ":8000"                # RAG 服务监听地址
+
+# Qdrant Configuration (Optional)
+qdrant:
+  enabled: true                     # 是否启用 Qdrant
+  auto_start: false                  # 启动时自动启动 Qdrant
+  server:
+    address: ":6333"                # Qdrant 服务地址
+    grpc_address: ":6334"           # Qdrant gRPC 地址
+
 # Binary Manager Configuration (Optional)
 binaries:
-  enabled: true
+  enabled: false
   use_embedded: false  # false: use local bin/, true: use embedded
   bin_path: "./bin"
   startup_order:
-    - qdrant
-    - wailsproject
 ```
 
 > 💡 提示：
 > - 支持 OpenAI 官方 API
 > - 支持其他兼容 OpenAI API 的服务（如 Ollama、Azure OpenAI 等）
+> - RAG 功能可选，不需要时可设置 `rag.enabled: false`
 > - 配置文件使用 YAML 格式，更易于管理和维护
 > - 可以通过设置 `binaries.enabled: false` 禁用嵌入的二进制服务
+> - 配置支持热重载，修改配置文件后会自动生效
 
 ### 4. 开发模式
 
@@ -128,6 +147,25 @@ wails build -platform linux/amd64    # Linux
 ```
 
 构建完成后，可执行文件位于 `build/bin/` 目录。
+
+#### macOS 应用签名和分发
+
+macOS 系统对未签名的应用会提示"已损坏"。为了让用户能够正常打开应用，需要对应用进行签名。
+
+**推荐方式**：使用我们提供的签名脚本（无需 Apple Developer 账号）
+
+```bash
+# 构建 + 签名 + 打包（一键完成）
+./scripts/build-and-sign.sh
+```
+
+这会在 `build/dist/` 目录生成一个签名的 ZIP 文件，用户解压后可以正常打开。
+
+**用户首次打开说明**：
+- 右键点击应用 -> 选择"打开" -> 点击"打开"
+- 或在系统设置 > 隐私与安全性中点击"仍要打开"
+
+> 📖 详细的签名说明和其他签名方案，请参阅 [签名指南](docs/SIGNING.md)
 
 ## 🎯 核心功能
 
@@ -163,6 +201,64 @@ wails build -platform linux/amd64    # Linux
 - 完整的 Markdown 语法支持
 - 代码块高亮显示
 - 数学公式渲染（KaTeX）
+
+### 6. RAG 知识库管理
+
+wachat 集成了强大的 RAG（Retrieval Augmented Generation）功能，让 AI 能够基于您的文档知识库提供更准确的回答。
+
+#### 快速开始
+
+1. **启用 RAG 功能**
+
+   在 `config.yaml` 中启用 RAG：
+   ```yaml
+   rag:
+     enabled: true
+     auto_start: true
+     top_k: 5
+     default_knowledge_base: "my_docs"  # 设置默认知识库
+
+   qdrant:
+     enabled: true
+     auto_start: true
+   ```
+
+2. **访问知识库管理**
+
+   - 点击主界面右上角的 "知识库管理" 按钮
+   - 首次使用会自动下载 go-rag 和 Qdrant 服务
+   - 下载完成后点击 "启动服务"
+
+3. **创建知识库**
+
+   在知识库管理界面中：
+   - 输入知识库名称（如 "my_docs"）
+   - 点击 "创建知识库"
+
+4. **上传文档**
+
+   支持多种文档格式：
+   - PDF 文档
+   - Markdown 文件
+   - HTML 网页
+   - 纯文本文件
+
+   上传方式：
+   - **本地文件**: 选择文件上传
+   - **网页 URL**: 输入网页地址，自动抓取内容
+
+5. **配置检索参数**
+
+   在知识库管理页面顶部：
+   - **TopK**: 每次检索返回的文档数量（1-100）
+   - **默认知识库**: 选择对话时使用的知识库
+
+6. **开始对话**
+
+   配置完成后：
+   - 返回聊天界面
+   - 发送消息时，AI 会自动从知识库检索相关内容
+   - 基于检索到的文档提供更准确的回答
 
 ## 📝 开发说明
 
@@ -231,6 +327,41 @@ A:
 - Vue 代码修改会自动热重载
 - 如果遇到问题，尝试清理缓存：`rm -rf frontend/dist`
 
+### Q: 如何使用 RAG 知识库功能？
+
+A:
+1. 在 `config.yaml` 中启用 RAG 和 Qdrant
+2. 点击主界面右上角的 "知识库管理" 按钮
+3. 首次使用会下载必要的服务（go-rag 和 Qdrant）
+4. 启动服务后，创建知识库并上传文档
+5. 在顶部设置栏选择默认知识库
+6. 返回聊天界面，AI 会自动使用知识库内容
+
+### Q: RAG 服务无法启动怎么办？
+
+A:
+- **检查端口占用**: 确保端口 8000（go-rag）和 6333（Qdrant）没有被占用
+- **检查配置**: 确认 `config.yaml` 中的配置正确
+- **查看日志**: 在应用日志中查看具体错误信息
+- **手动清理**: 删除 `~/.wachat/go-rag` 和 `~/.wachat/qdrant` 目录后重新下载
+
+### Q: 知识库文档支持哪些格式？
+
+A: 目前支持：
+- PDF 文档（.pdf）
+- Markdown 文件（.md）
+- HTML 网页（.html）
+- 纯文本文件（.txt）
+- 网页 URL（自动抓取内容）
+
+### Q: 如何提高 RAG 检索的准确性？
+
+A:
+1. 使用清晰、具体的问题
+2. 调整 `top_k` 参数（增加返回的文档数量）
+3. 确保上传的文档内容质量高、结构清晰
+4. 使用支持 embedding 的高质量 AI 模型
+5. 为不同主题创建独立的知识库
 
 ## 🗺 开发路线图
 
@@ -239,6 +370,11 @@ A:
 - [x] 本地数据持久化
 - [x] 流式消息输出
 - [x] Markdown 和代码高亮
+- [x] RAG 知识库集成
+- [x] Qdrant 向量数据库
+- [x] 文档上传和索引
+- [x] 知识库管理界面
+- [x] 配置热重载
 - [ ] 消息编辑和重新生成
 - [ ] 对话导出（JSON/Markdown）
 - [ ] 主题切换（深色/浅色）
@@ -252,6 +388,8 @@ A:
 - [Wails](https://github.com/wailsapp/wails) - 优秀的 Go + Web 框架
 - [Vue.js](https://github.com/vuejs/core) - 渐进式 JavaScript 框架
 - [Cloudwego Eino](https://github.com/cloudwego/eino) - 字节跳动开源的 LLM 应用开发框架，提供统一的 AI 接入能力
+- [go-rag](https://github.com/wangle201210/go-rag) - 基于 Go 的 RAG 系统，提供知识库检索增强能力
+- [Qdrant](https://qdrant.tech/) - 高性能向量搜索引擎，为 RAG 提供向量存储和检索
 - [deepchat](https://github.com/ThinkInAIXYZ/deepchat) - UI 设计参考，提供了优秀的聊天界面设计灵感
 
 ## 📮 联系方式
